@@ -25,7 +25,8 @@ def home():
     return "Bot is running!"
 
 def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
+    # 🌟 Renderの要求するポート（10000番など）に自動で合わせる修正
+    port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
@@ -41,7 +42,6 @@ HEADERS = {
     "Accept": "application/rss+xml, application/xml, text/xml"
 }
 
-# 🔒 セキュリティ（403）に弾かれないデータ配信元から取得します
 def get_dissoku_rss_links():
     url = "https://dissoku.net/ja/rss"
     try:
@@ -61,6 +61,9 @@ def get_dissoku_rss_links():
 async def on_ready():
     print(f"成功: {client.user} としてログインしました！")
     if not send_random_server.is_running():
+        # 🌟 起動した瞬間に1回目をすぐに送るように変更しました！
+        print("起動直後の即時送信を実行します...")
+        await send_random_server()
         send_random_server.start()
 
 # ⏰ 4分ごとに自動送信
@@ -81,7 +84,6 @@ async def send_random_server():
     chosen_link = random.choice(links)
 
     try:
-        # Discordに送信（緑の参加ボタン付きカードになります）
         await channel.send(f"【ディス速最新自動取得】\n{chosen_link}")
         print(f"【送信完了】投稿しました ➔ {chosen_link}")
     except Exception as e:
