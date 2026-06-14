@@ -9,7 +9,6 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID || "1515109697680576684";
 // ===========================================
 
-// --- Webサイト用のサーバー設定 (Express) ---
 const app = express();
 const PORT = process.env.PORT || 8080;
 
@@ -20,7 +19,6 @@ app.get('/', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Web server is listening on port ${PORT}`);
 });
-// ---------------------------------------------
 
 const client = new Client({
     intents: [
@@ -29,9 +27,11 @@ const client = new Client({
     ]
 });
 
+// ★ブロック対策：最新の一般的なブラウザの情報をセット
 const HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept-Language": "ja-JP,ja;q=0.9",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
 };
 
 // ディス速からサーバー一覧を取得
@@ -39,12 +39,16 @@ async function getDissokuServers() {
     const url = "https://dissoku.net/ja/servers";
     try {
         const response = await axios.get(url, { headers: HEADERS, timeout: 15000 });
-        if (response.status !== 200) return [];
+        if (response.status !== 200) {
+            console.log(`[一覧取得エラー] ステータスコード: ${response.status}`);
+            return [];
+        }
 
         const $ = cheerio.load(response.data);
         const servers = [];
 
-        $("a[href]").each((i, el) => {
+        // リンクの抽出条件を少し広げて確実に取得できるように調整
+        $("a").each((i, el) => {
             let href = $(el).attr("href");
             if (href && href.includes("/servers/") && !href.endsWith("/servers")) {
                 const title = $(el).text().trim();
@@ -63,9 +67,10 @@ async function getDissokuServers() {
                 uniqueServers.push(s);
             }
         }
+        console.log(`[ログ] ディス速から ${uniqueServers.length} 件のサーバー候補を取得しました。`);
         return uniqueServers;
     } catch (e) {
-        console.log("一覧取得エラー:", e.message);
+        console.log("[一覧取得エラー] 詳細情報:", e.message);
         return [];
     }
 }
@@ -79,7 +84,7 @@ async function getDirectInviteLink(detailUrl) {
         const $ = cheerio.load(response.data);
         let inviteLink = null;
 
-        $("a[href]").each((i, el) => {
+        $("a").each((i, el) => {
             const href = $(el).attr("href");
             if (href && (href.includes("discord.gg/") || href.includes("discord.com/invite/"))) {
                 inviteLink = href;
@@ -88,19 +93,18 @@ async function getDirectInviteLink(detailUrl) {
         });
         return inviteLink;
     } catch (e) {
-        console.log("詳細ページ解析エラー:", e.message);
+        console.log(`[詳細ページ解析エラー] ${detailUrl} ➔`, e.message);
         return null;
     }
 }
 
-// メインの取得・送信処理（共通化）
+// メインの取得・送信処理
 async function fetchAndSendInvite(targetChannel) {
     console.log("ディス速から最新のサーバー情報を取得しています...");
     const servers = await getDissokuServers();
 
     if (!servers || servers.length === 0) {
-        console.log("データが空のためスキップします。");
-        return "サーバーデータの取得に失敗したか、データが空でした。";
+        return "サーバーデータの取得に失敗したか、アクセスが拒否されました。しばらく時間を置いて試してください。";
     }
 
     // シャッフル
@@ -110,10 +114,11 @@ async function fetchAndSendInvite(targetChannel) {
     }
 
     let directLink = null;
-    const targetServers = servers.slice(0, 5);
+    // 取得確率を上げるため、調査対象を5件から10件に増やします
+    const targetServers = servers.slice(0, 10);
     for (const server of targetServers) {
         console.log(`「${server.title}」から直接招待URLを抽出中...`);
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => setTimeout(resolve, 1500)); // 負荷軽減
 
         const inviteUrl = await getDirectInviteLink(server.detail_link);
         if (inviteUrl) {
@@ -127,70 +132,45 @@ async function fetchAndSendInvite(targetChannel) {
         console.log(`【送信完了】投稿しました ➔ ${directLink}`);
         return `成功しました！招待リンクを投稿しました。`;
     } else {
-        console.log("直接招待リンクが取得できませんでした。");
-        return "直接招待リンクが見つかりませんでした。";
+        console.log("候補のサーバーから直接招待リンクが取得できませんでした。");
+        return "サーバーは見つかりましたが、直接の招待リンクが取得できませんでした。もう一度試してみてください。";
     }
 }
 
-// 定期実行用（30分おき）
 async function sendRandomServerAutomated() {
     const channel = await client.channels.fetch(CHANNEL_ID).catch(() => null);
-    if (!channel) {
-        console.log(`【自動実行エラー】チャンネルが見つかりません。`);
-        return;
-    }
+    if (!channel) return;
     await fetchAndSendInvite(channel);
 }
 
-// スラッシュコマンドの設定登録
 const commands = [
     new SlashCommandBuilder()
         .setName('自動依頼')
         .setDescription('ディス速からランダムに招待リンクを1つ取得してこのチャンネルに送信します')
 ].map(command => command.toJSON());
 
-// ログイン完了時の処理
 client.once('ready', async () => {
     console.log(`成功: ${client.user.tag} としてログインしました！`);
-    
-    // スラッシュコマンドをDiscordに登録する
     const rest = new REST({ version: '10' }).setToken(TOKEN);
     try {
-        console.log('スラッシュコマンドを登録中...');
-        await rest.put(
-            Routes.applicationCommands(client.user.id),
-            { body: commands },
-        );
+        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
         console.log('スラッシュコマンドの登録に成功しました！');
     } catch (error) {
         console.error('コマンド登録エラー:', error);
     }
-    
-    // 30分（1800000ミリ秒）ごとの定期実行も起動
     setInterval(sendRandomServerAutomated, 1800000);
 });
 
-// コマンドが実行されたときの処理
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === '自動依頼') {
-        // 返信が遅れるとエラーになるのを防ぐため、一旦「考え中...」にする
         await interaction.deferReply({ ephemeral: true });
-
-        // コマンドが打たれたチャンネルに送信する
         const resultMessage = await fetchAndSendInvite(interaction.channel);
-        
-        // 結果を本人にだけ通知
         await interaction.editReply({ content: resultMessage });
     }
 });
 
-// ログイン実行
 if (TOKEN) {
-    client.login(TOKEN).catch(err => {
-        console.error("ログインエラー:", err.message);
-    });
-} else {
-    console.log("【致命的なエラー】シークレットに 'DISCORD_TOKEN' が設定されていません。");
+    client.login(TOKEN).catch(err => console.error("ログインエラー:", err.message));
 }
