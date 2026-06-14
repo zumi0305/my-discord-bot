@@ -9,7 +9,6 @@ from discord.ext import tasks
 import requests
 from flask import Flask
 
-# 環境による非同期処理のエラー防止
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -42,6 +41,7 @@ HEADERS = {
     "Accept": "application/rss+xml, application/xml, text/xml"
 }
 
+# 🔒 セキュリティ（403）に弾かれないデータ配信元から取得します
 def get_dissoku_rss_links():
     url = "https://dissoku.net/ja/rss"
     try:
@@ -63,6 +63,7 @@ async def on_ready():
     if not send_random_server.is_running():
         send_random_server.start()
 
+# ⏰ 4分ごとに自動送信
 @tasks.loop(minutes=4)
 async def send_random_server():
     channel = client.get_channel(CHANNEL_ID)
@@ -80,6 +81,7 @@ async def send_random_server():
     chosen_link = random.choice(links)
 
     try:
+        # Discordに送信（緑の参加ボタン付きカードになります）
         await channel.send(f"【ディス速最新自動取得】\n{chosen_link}")
         print(f"【送信完了】投稿しました ➔ {chosen_link}")
     except Exception as e:
