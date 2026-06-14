@@ -16,28 +16,41 @@ class MyBot(discord.Client):
 
 client = MyBot()
 
-DATA_FILE = 'users.json'
+# Renderの仕様に合わせて確実にカレントディレクトリに保存する
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_FILE = os.path.join(BASE_DIR, 'users.json')
 user_data = {}
 
-# データの読み込み
+# データの読み込み（安全版）
 def load_data():
     global user_data
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                user_data = json.load(f)
-        except Exception:
+                content = f.read().strip()
+                if content:
+                    user_data = json.loads(content)
+                else:
+                    user_data = {}
+        except Exception as e:
+            print(f"データ読み込み失敗: {e}")
             user_data = {}
     else:
         user_data = {}
 
-# データの保存
+# データの保存（安全版）
 def save_data():
     try:
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        # 一時ファイルに書き込んでから置換することで破損を防ぐ
+        temp_file = DATA_FILE + '.tmp'
+        with open(temp_file, 'w', encoding='utf-8') as f:
             json.dump(user_data, f, indent=4, ensure_ascii=False)
-    except Exception:
-        pass
+        if os.path.exists(temp_file):
+            if os.path.exists(DATA_FILE):
+                os.remove(DATA_FILE)
+            os.rename(temp_file, DATA_FILE)
+    except Exception as e:
+        print(f"データ保存失敗: {e}")
 
 # ランクの判定
 def get_rank(level):
@@ -72,8 +85,9 @@ async def on_ready():
     print(f'{client.user.name} ({client.user.id}) is online!')
     load_data()
     try:
-        # スラッシュコマンドをDiscordに同期
+        # スラッシュコマンドをDiscordに強制同期
         await client.tree.sync()
+        print("スラッシュコマンドの同期が成功しました！")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
@@ -102,6 +116,8 @@ async def on_message(message):
 @client.tree.command(name="profile", description="View profile")
 @app_commands.describe(user="Select a user")
 async def profile(interaction: discord.Interaction, user: discord.User = None):
+    # データを最新状態に読み込み直す
+    load_data()
     target_user = user or interaction.user
     init_user(target_user.id, target_user.name)
     
@@ -110,12 +126,14 @@ async def profile(interaction: discord.Interaction, user: discord.User = None):
     rank = get_rank(data["level"])
 
     await interaction.response.send_message(
-        f"👤 **{data['name']}**\n⚔️ **Power:** {power}\n🎖️ **Rank:** {rank}\n⭐ **Level:** {data['level']}"
+        f"👤 **{data['name']}**\n⚔️ **Power:** ${power}\n🎖️ **Rank:** {rank}\n⭐ **Level:** {data['level']}"
     )
 
 # /ranking コマンド
 @client.tree.command(name="ranking", description="View Leaderboard")
 async def ranking(interaction: discord.Interaction):
+    # データを最新状態に読み込み直す
+    load_data()
     sorted_list = sorted(user_data.values(), key=lambda x: x['level'], reverse=True)[:10]
     
     if not sorted_list:
