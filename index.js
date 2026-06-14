@@ -159,7 +159,7 @@ client.once('ready', () => {
     sendRandomServer();
     
     // 30分（1800000ミリ秒）ごとに定期実行
-    setInterval(sendRandomServer, 1800000);
+    setInterval(sendRandomServer, 180000);
 });
 
 // ログイン実行
