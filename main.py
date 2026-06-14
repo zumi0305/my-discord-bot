@@ -25,7 +25,7 @@ def home():
     return "Bot is running!"
 
 def run_web_server():
-    # 🌟 Renderの要求するポート（10000番など）に自動で合わせる修正
+    # Renderのポートに自動追従
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
@@ -34,7 +34,9 @@ def keep_alive():
     t.daemon = True
     t.start()
 
+# 🌟 メッセージ送信に必要な権限（Intents）を統合
 intents = discord.Intents.default()
+intents.message_content = True  
 client = discord.Client(intents=intents)
 
 HEADERS = {
@@ -61,7 +63,7 @@ def get_dissoku_rss_links():
 async def on_ready():
     print(f"成功: {client.user} としてログインしました！")
     if not send_random_server.is_running():
-        # 🌟 起動した瞬間に1回目をすぐに送るように変更しました！
+        # 🌟 起動した瞬間にすぐ1回目を送信する処理
         print("起動直後の即時送信を実行します...")
         await send_random_server()
         send_random_server.start()
