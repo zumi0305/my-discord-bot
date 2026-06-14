@@ -1,105 +1,132 @@
 import os
-import sys
-import asyncio
-import random
-import re
-from threading import Thread
+import json
 import discord
-from discord.ext import tasks
-import requests
-from flask import Flask
+from discord import app_commands
 
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-# ================= 設定部分 =================
-TOKEN = os.environ.get("DISCORD_TOKEN")
-CHANNEL_ID_STR = os.environ.get("DISCORD_CHANNEL_ID", "1515109697680576684")
-CHANNEL_ID = int(CHANNEL_ID_STR) if CHANNEL_ID_STR.isdigit() else 1515109697680576684
-# ===========================================
-
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Bot is running!"
-
-def run_web_server():
-    # Renderのポートに自動追従
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
-
-def keep_alive():
-    t = Thread(target=run_web_server)
-    t.daemon = True
-    t.start()
-
-# 🌟 メッセージ送信に必要な権限（Intents）を統合
+# Botの初期設定（インテント）
 intents = discord.Intents.default()
-intents.message_content = True  
-client = discord.Client(intents=intents)
+intents.messages = True
+intents.message_content = True
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept": "application/rss+xml, application/xml, text/xml"
-}
+class MyBot(discord.Client):
+    def __init__(self):
+        super().__init__(intents=intents)
+        # スラッシュコマンド用のツリーを作成
+        self.tree = app_commands.CommandTree(self)
 
-def get_dissoku_rss_links():
-    url = "https://dissoku.net/ja/rss"
+client = MyBot()
+
+DATA_FILE = 'users.json'
+user_data = {}
+
+# データの読み込み
+def load_data():
+    global user_data
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                user_data = json.load(f)
+        except Exception:
+            user_data = {}
+    else:
+        user_data = {}
+
+# データの保存
+def save_data():
     try:
-        response = requests.get(url, headers=HEADERS, timeout=10)
-        if response.status_code != 200:
-            print(f"ディス速データの取得失敗 (ステータス: {response.status_code})")
-            return []
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(user_data, f, indent=4, ensure_ascii=False)
+    except Exception:
+        pass
 
-        xml_data = response.text
-        links = re.findall(r'<link>(https://dissoku\.net/ja/servers/[^\s<]+)</link>', xml_data)
-        return list(set(links))
-    except Exception as e:
-        print("データ取得エラー:", e)
-        return []
+# ランクの判定
+def get_rank(level):
+    if level >= 100: return 'Marshal (元帥)'
+    if level >= 70:  return 'Colonel (大佐)'
+    if level >= 50:  return 'Captain (大尉)'
+    if level >= 40:  return 'Lieutenant (中尉)'
+    if level >= 30:  return 'Second Lieutenant (少尉)'
+    if level >= 20:  return 'First Sergeant (曹長)'
+    if level >= 15:  return 'Sergeant (軍曹)'
+    if level >= 10:  return 'Corporal (伍長)'
+    if level >= 5:   return 'Private First Class (上等兵)'
+    return 'Private (新兵)'
 
+# ユーザーの初期化
+def init_user(user_id, username):
+    str_id = str(user_id)
+    if str_id not in user_data:
+        user_data[str_id] = {
+            "id": user_id,
+            "name": username,
+            "xp": 0,
+            "level": 1,
+            "wins": 0,
+            "merit": 0
+        }
+        save_data()
+
+# 起動時に実行されるイベント
 @client.event
 async def on_ready():
-    print(f"成功: {client.user} としてログインしました！")
-    if not send_random_server.is_running():
-        # 🌟 起動した瞬間にすぐ1回目を送信する処理
-        print("起動直後の即時送信を実行します...")
-        await send_random_server()
-        send_random_server.start()
+    print(f'{client.user.name} ({client.user.id}) is online!')
+    load_data()
+    try:
+        # スラッシュコマンドをDiscordに同期
+        await client.tree.sync()
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
 
-# ⏰ 4分ごとに自動送信
-@tasks.loop(minutes=4)
-async def send_random_server():
-    channel = client.get_channel(CHANNEL_ID)
-    if not channel:
-        print(f"【エラー】チャンネル（ID: {CHANNEL_ID}）が見つかりません。")
+# メッセージが送信された時のイベント（XP付与）
+@client.event
+async def on_message(message):
+    if message.author.bot:
         return
 
-    print("ディス速から最新のサーバー情報を自動取得中...")
-    links = get_dissoku_rss_links()
+    user_id = message.author.id
+    init_user(user_id, message.author.name)
+
+    str_id = str(user_id)
+    user_data[str_id]["xp"] += 5
+    user = user_data[str_id]
+    next_level_xp = user["level"] * 100
+
+    if user["xp"] >= next_level_xp:
+        user["xp"] -= next_level_xp
+        user["level"] += 1
+        await message.reply(f"⭐ **LEVEL UP!**\n{message.author.name} reached Level **{user['level']}**!")
     
-    if not links:
-        print("有効なサーバーリンクが見つからなかったためスキップします。")
+    save_data()
+
+# /profile コマンド
+@client.tree.command(name="profile", description="View profile")
+@app_commands.describe(user="Select a user")
+async def profile(interaction: discord.Interaction, user: discord.User = None):
+    target_user = user or interaction.user
+    init_user(target_user.id, target_user.name)
+    
+    data = user_data[str(target_user.id)]
+    power = data["level"] * 100
+    rank = get_rank(data["level"])
+
+    await interaction.response.send_message(
+        f"👤 **{data['name']}**\n⚔️ **Power:** {power}\n🎖️ **Rank:** {rank}\n⭐ **Level:** {data['level']}"
+    )
+
+# /ranking コマンド
+@client.tree.command(name="ranking", description="View Leaderboard")
+async def ranking(interaction: discord.Interaction):
+    sorted_list = sorted(user_data.values(), key=lambda x: x['level'], reverse=True)[:10]
+    
+    if not sorted_list:
+        await interaction.response.send_message('No data.')
         return
 
-    chosen_link = random.choice(links)
+    txt = '🏆 **Leaderboard**\n\n'
+    for i, u in enumerate(sorted_list):
+        txt += f"{i+1}. {u['name']} ⚔️{u['level']*100}\n"
+        
+    await interaction.response.send_message(txt)
 
-    try:
-        await channel.send(f"【ディス速最新自動取得】\n{chosen_link}")
-        print(f"【送信完了】投稿しました ➔ {chosen_link}")
-    except Exception as e:
-        print("メッセージ送信エラー:", e)
-
-@send_random_server.before_loop
-async def before_send():
-    await client.wait_until_ready()
-
-if TOKEN:
-    keep_alive()
-    try:
-        client.run(TOKEN)
-    except Exception as e:
-        print("ログインエラーが発生しました:", e)
-else:
-    print("【致命的なエラー】シークレットに 'DISCORD_TOKEN' が設定されていません。")
+# Renderの環境変数からトークンを読み込んで起動
+client.run(os.getenv('DISCORD_TOKEN'))
