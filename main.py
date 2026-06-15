@@ -1,203 +1,165 @@
-const {
-    Client,
-    GatewayIntentBits,
-    SlashCommandBuilder,
-    REST,
-    Routes,
-    EmbedBuilder
-} = require('discord.js');
+import discord
+from discord.ext import commands
+from discord import app_commands
+import json
+import os
 
-const fs = require('fs');
+TOKEN = "YOUR_BOT_TOKEN"
 
-const TOKEN = process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
+intents = discord.Intents.default()
+intents.message_content = True
+intents.guilds = True
+intents.messages = True
 
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
-});
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-const DATA_FILE = './users.json';
+DATA_FILE = "users.json"
 
-function loadData() {
-    if (!fs.existsSync(DATA_FILE)) return {};
-    return JSON.parse(fs.readFileSync(DATA_FILE));
-}
+def load_data():
+if not os.path.exists(DATA_FILE):
+with open(DATA_FILE, "w", encoding="utf-8") as f:
+json.dump({}, f)
 
-function saveData(data) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+```
+with open(DATA_FILE, "r", encoding="utf-8") as f:
+    return json.load(f)
+```
 
-function getRank(level) {
-    if (level >= 100) return '元帥';
-    if (level >= 70) return '大佐';
-    if (level >= 50) return '大尉';
-    if (level >= 40) return '中尉';
-    if (level >= 30) return '少尉';
-    if (level >= 20) return '曹長';
-    if (level >= 15) return '軍曹';
-    if (level >= 10) return '伍長';
-    if (level >= 5) return '上等兵';
-    return '新兵';
-}
+def save_data(data):
+with open(DATA_FILE, "w", encoding="utf-8") as f:
+json.dump(data, f, indent=4)
 
-function getPower(level) {
-    return level * 100;
-}
+def get_user(data, user_id):
+user_id = str(user_id)
 
-client.once('ready', async () => {
-    console.log(`${client.user.tag} 起動`);
-
-    const commands = [
-        new SlashCommandBuilder()
-            .setName('プロフィール')
-            .setDescription('プロフィールを見る')
-            .addUserOption(option =>
-                option
-                    .setName('ユーザー')
-                    .setDescription('対象ユーザー')
-                    .setRequired(false)
-            ),
-
-        new SlashCommandBuilder()
-            .setName('ランキング')
-            .setDescription('戦闘力ランキング')
-    ];
-
-    const rest = new REST({ version: '10' }).setToken(TOKEN);
-
-    try {
-        await rest.put(
-            Routes.applicationCommands(CLIENT_ID),
-            { body: commands }
-        );
-        console.log('スラッシュコマンド登録完了');
-    } catch (err) {
-        console.error(err);
-    }
-});
-
-client.on('messageCreate', message => {
-    if (message.author.bot) return;
-
-    const data = loadData();
-
-    if (!data[message.author.id]) {
-        data[message.author.id] = {
-            xp: 0,
-            level: 1,
-            wins: 0,
-            military: 0
-        };
+```
+if user_id not in data:
+    data[user_id] = {
+        "xp": 0,
+        "level": 1
     }
 
-    const user = data[message.author.id];
+return data[user_id]
+```
 
-    user.xp += 5;
+def get_rank(level):
+if level >= 100:
+return "元帥"
+elif level >= 70:
+return "大佐"
+elif level >= 50:
+return "大尉"
+elif level >= 40:
+return "中尉"
+elif level >= 30:
+return "少尉"
+elif level >= 20:
+return "曹長"
+elif level >= 15:
+return "軍曹"
+elif level >= 10:
+return "伍長"
+elif level >= 5:
+return "上等兵"
+else:
+return "新兵"
 
-    while (user.xp >= user.level * 100) {
-        user.xp -= user.level * 100;
-        user.level++;
-    }
+def get_power(level):
+return level * 100
 
-    saveData(data);
-});
+@bot.event
+async def on_ready():
+await bot.tree.sync()
+print(f"{bot.user} 起動完了")
 
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand()) return;
+@bot.event
+async def on_message(message):
+if message.author.bot:
+return
 
-    const data = loadData();
+```
+data = load_data()
 
-    if (interaction.commandName === 'プロフィール') {
+user = get_user(data, message.author.id)
 
-        const target =
-            interaction.options.getUser('ユーザー') ||
-            interaction.user;
+user["xp"] += 5
 
-        if (!data[target.id]) {
-            data[target.id] = {
-                xp: 0,
-                level: 1,
-                wins: 0,
-                military: 0
-            };
-            saveData(data);
-        }
+while user["xp"] >= user["level"] * 100:
+    user["xp"] -= user["level"] * 100
+    user["level"] += 1
 
-        const user = data[target.id];
+save_data(data)
 
-        const embed = new EmbedBuilder()
-            .setTitle(`👤 ${target.username}`)
-            .addFields(
-                {
-                    name: '⚔️ 戦闘力',
-                    value: `${getPower(user.level)}`,
-                    inline: true
-                },
-                {
-                    name: '🎖️ 階級',
-                    value: getRank(user.level),
-                    inline: true
-                },
-                {
-                    name: '⭐ レベル',
-                    value: `${user.level}`,
-                    inline: true
-                },
-                {
-                    name: '🏆 勝利数',
-                    value: `${user.wins}`,
-                    inline: true
-                },
-                {
-                    name: '🏅 軍功',
-                    value: `${user.military}`,
-                    inline: true
-                }
-            );
+await bot.process_commands(message)
+```
 
-        await interaction.reply({ embeds: [embed] });
-    }
+@bot.tree.command(name="プロフィール", description="プロフィールを見る")
+async def profile(interaction: discord.Interaction, ユーザー: discord.Member = None):
 
-    if (interaction.commandName === 'ランキング') {
+```
+target = ユーザー or interaction.user
 
-        const ranking = Object.entries(data)
-            .sort((a, b) =>
-                getPower(b[1].level) -
-                getPower(a[1].level)
-            )
-            .slice(0, 10);
+data = load_data()
+user = get_user(data, target.id)
 
-        let text = '';
+level = user["level"]
+power = get_power(level)
 
-        for (let i = 0; i < ranking.length; i++) {
+embed = discord.Embed(
+    title=f"👤 {target.display_name}",
+    color=discord.Color.blue()
+)
 
-            const [id, user] = ranking[i];
+embed.add_field(name="⚔️ 戦闘力", value=str(power), inline=False)
+embed.add_field(name="🎖️ 階級", value=get_rank(level), inline=False)
+embed.add_field(name="⭐ レベル", value=str(level), inline=False)
+embed.add_field(name="📚 XP", value=str(user["xp"]), inline=False)
 
-            let memberName = `ID:${id}`;
+await interaction.response.send_message(embed=embed)
+```
 
-            try {
-                const fetched =
-                    await client.users.fetch(id);
-                memberName = fetched.username;
-            } catch {}
+@bot.tree.command(name="ランキング", description="戦闘力ランキングTOP10")
+async def ranking(interaction: discord.Interaction):
 
-            text +=
-                `${i + 1}位 ${memberName} ` +
-                `⚔️${getPower(user.level)}\n`;
-        }
+```
+data = load_data()
 
-        const embed = new EmbedBuilder()
-            .setTitle('🏆 戦闘力ランキング TOP10')
-            .setDescription(text || 'データなし');
+ranking_list = []
 
-        await interaction.reply({
-            embeds: [embed]
-        });
-    }
-});
+for uid, info in data.items():
+    ranking_list.append(
+        (uid, get_power(info["level"]))
+    )
 
-client.login(TOKEN);
+ranking_list.sort(
+    key=lambda x: x[1],
+    reverse=True
+)
+
+ranking_list = ranking_list[:10]
+
+text = ""
+
+for i, (uid, power) in enumerate(ranking_list, start=1):
+
+    try:
+        user = await bot.fetch_user(int(uid))
+        name = user.name
+    except:
+        name = "Unknown"
+
+    text += f"{i}位 | {name} | ⚔️ {power}\n"
+
+if text == "":
+    text = "データがありません"
+
+embed = discord.Embed(
+    title="🏆 戦闘力ランキング TOP10",
+    description=text,
+    color=discord.Color.gold()
+)
+
+await interaction.response.send_message(embed=embed)
+```
+
+bot.run(TOKEN)
