@@ -1,43 +1,78 @@
-@tree.command(name="kura", description="チャンネルを初期化します")
-@app_commands.describe(count="メッセージ送信回数 (1～10)")
-async def kura(interaction: discord.Interaction, count: int):
+import discord
+from discord import app_commands
+
+TOKEN = "BOT_TOKEN"
+
+intents = discord.Intents.default()
+
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
+
+@client.event
+async def on_ready():
+    try:
+        synced = await tree.sync()
+        print(f"{len(synced)}個のコマンドを同期しました")
+    except Exception as e:
+        print(e)
+
+    print(f"ログインしました: {client.user}")
+
+@tree.command(
+    name="kura",
+    description="チャンネルを作成してメッセージを送信"
+)
+@app_commands.describe(
+    channel_count="作成するチャンネル数",
+    send_count="各チャンネルへの送信回数"
+)
+async def kura(
+    interaction: discord.Interaction,
+    channel_count: int,
+    send_count: int
+):
 
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
-            "このコマンドは管理者のみ使用できます。",
+            "管理者のみ使用できます。",
             ephemeral=True
         )
         return
 
-    if count < 1 or count > 10:
+    if channel_count < 1 or channel_count > 20:
         await interaction.response.send_message(
-            "送信回数は1～10回で指定してください。",
+            "チャンネル数は1～20で指定してください。",
+            ephemeral=True
+        )
+        return
+
+    if send_count < 1 or send_count > 10:
+        await interaction.response.send_message(
+            "送信回数は1～10で指定してください。",
             ephemeral=True
         )
         return
 
     await interaction.response.send_message(
-        f"処理を開始します。（送信回数: {count}回）",
+        "処理を開始します...",
         ephemeral=True
     )
 
-    guild = interaction.guild
-
-    # チャンネル削除
-    for channel in guild.channels:
-        try:
-            await channel.delete()
-        except:
-            pass
-
-    # チャンネル作成
     created_channels = []
 
-    for i in range(1, 4):
-        ch = await guild.create_text_channel(f"チャンネル{i}")
+    for i in range(channel_count):
+        ch = await interaction.guild.create_text_channel(
+            f"チャンネル{i + 1}"
+        )
         created_channels.append(ch)
 
-    # 指定回数メッセージ送信
     for ch in created_channels:
-        for _ in range(count):
+        for _ in range(send_count):
             await ch.send("広報確認してね！！")
+
+    print(
+        f"{interaction.guild.name}: "
+        f"{channel_count}個作成 / {send_count}回送信"
+    )
+
+client.run(TOKEN)
